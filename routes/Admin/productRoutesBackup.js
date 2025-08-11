@@ -1,11 +1,7 @@
 import express from 'express';
-import { createProduct, deleteProduct, getAllProducts, updateProduct, getCustomHtmlByPid, saveCustomHtml, toggleShowDiscount, checkPrdTypeCount} from '../../controllers/Admin/productController.js'
+import { createProduct, deleteProduct, getAllProducts, updateProduct, getCustomHtmlByPid, saveCustomHtml, toggleShowDiscount, checkPrdTypeCount} from '../../controllers/Admin/productControllerBackup.js'
 import { protect } from '../../middleware/authMiddleware.js';
-// import { upload } from '../../middleware/uploadMiddleware.js';
-import multer from 'multer';
-
-const storage = multer.memoryStorage(); // store in RAM, not disk
-const upload = multer({ storage });
+import { upload } from '../../middleware/uploadMiddleware.js';
 
 const productAdminRouter = express.Router();
 

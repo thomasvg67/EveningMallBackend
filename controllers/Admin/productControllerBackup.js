@@ -5,43 +5,12 @@ import Brand from '../../models/Brand.js';
 import Category from '../../models/Category.js';
 import SubCategory from '../../models/SubCategory.js';
 import { getSortCriteria } from '../../utils/sortHelper.js';
-import ftp from "basic-ftp";
-import path from "path";
-import fs from "fs";
-import os from "os";
-
-// Helper function to upload a single file buffer to cPanel
-async function uploadFileToCpanel(file, remoteFolder = "/eveningmall.in/uploads") {
-  const client = new ftp.Client();
-  client.ftp.verbose = false;
-  try {
-    await client.access({
-      host: process.env.FTP_HOST || "ftp.eveningmall.in",
-      user: process.env.FTP_USER,
-      password: process.env.FTP_PASS,
-      secure: false
-    });
-
-    const tempDir = os.tmpdir(); // Works on Windows, Linux, macOS
-    const tempFilePath = path.join(tempDir, file.originalname);
-    fs.writeFileSync(tempFilePath, file.buffer);
-
-    fs.writeFileSync(tempFilePath, file.buffer); // Write buffer to tmp file
-
-    await client.uploadFrom(tempFilePath, `${remoteFolder}/${file.originalname}`);
-
-    return `https://eveningmall.in/uploads/${encodeURIComponent(file.originalname)}`;
-  } finally {
-    client.close();
-  }
-}
 
 export const createProduct = async (req, res) => {
   try {
     const { name, description, price, discount, quantity, brandName, categoryName, subCategoryName, prdType } = req.body;
     const userId = req.user?.userId;
     let rawTags = req.body.tags;
-    console.log(req);
 
     let tags = [];
     if (Array.isArray(rawTags)) {
@@ -50,7 +19,7 @@ export const createProduct = async (req, res) => {
       try {
         const parsed = JSON.parse(rawTags);
         tags = Array.isArray(parsed) ? parsed : [parsed];
-      } catch {
+      } catch (err) {
         tags = [rawTags];
       }
     }
@@ -61,45 +30,41 @@ export const createProduct = async (req, res) => {
       return res.status(403).json({ message: 'Only admin can create products' });
     }
 
-    // Get registered user using email
+    // Get registered user using email (encrypted email matching logic if needed)
     const registeredUser = await RegisteredUser.findOne({ email: loginUser.email });
+
     const adminName = registeredUser?.name || 'Unknown Admin';
 
-    // Ensure files are uploaded
-    if (!req.files['imgMain']?.[0] || !req.files['imgMulti'] || req.files['imgMulti'].length !== 4) {
-      return res.status(400).json({ message: 'Main image and exactly 4 multi-images are required' });
+    const imgMain = req.files['imgMain']?.[0]?.path;
+    const imgMulti = req.files['imgMulti']?.map(file => file.path);
+
+    if (!name || !price || !quantity || !imgMain || !imgMulti || !brandName || !categoryName || !subCategoryName) {
+      return res.status(400).json({ message: 'All fields are required' });
     }
 
-    // Upload main image to cPanel
-    const imgMainUrl = await uploadFileToCpanel(req.files['imgMain'][0]);
-
-    // Upload multi images to cPanel
-    const imgMultiUrls = [];
-    for (const file of req.files['imgMulti']) {
-      const url = await uploadFileToCpanel(file);
-      imgMultiUrls.push(url);
+    if (imgMulti.length !== 4) {
+      return res.status(400).json({ message: 'Exactly 4 multi-images required' });
     }
 
-    // Brand
     let brand = await Brand.findOne({ name: new RegExp(`^${brandName}$`, 'i'), dlt_sts: 0 });
     if (!brand) {
       brand = new Brand({ name: brandName, createdBy: adminName });
       await brand.save();
     }
 
-    // Category
     let category = await Category.findOne({ name: new RegExp(`^${categoryName}$`, 'i'), dlt_sts: 0 });
     if (!category) {
       category = new Category({ name: categoryName, createdBy: adminName });
       await category.save();
     }
 
-    // SubCategory
+    // Handle SubCategory (within this Category)
     let subCategory = await SubCategory.findOne({
       name: new RegExp(`^${subCategoryName}$`, 'i'),
       catId: category.catId,
       dlt_sts: 0
     });
+
     if (!subCategory) {
       subCategory = new SubCategory({
         name: subCategoryName,
@@ -109,10 +74,14 @@ export const createProduct = async (req, res) => {
       await subCategory.save();
     }
 
-    // Validate description
-    let htmlDescription = description?.trim() || '<p>No description provided</p>';
+    // Validate and sanitize HTML description if needed
+    let htmlDescription = description || '';
 
-    // Limit featured/trendy products
+    // Optional: Basic HTML validation (you might want to use a library like DOMPurify for server-side)
+    if (htmlDescription.trim() === '') {
+      htmlDescription = '<p>No description provided</p>';
+    }
+    // Enforce maximum 12 products for each type: 'featured' or 'trendy'
     if (['featured', 'trendy'].includes(prdType)) {
       const count = await Product.countDocuments({ prdType, dlt_sts: { $ne: 1 } });
       if (count >= 12) {
@@ -120,7 +89,6 @@ export const createProduct = async (req, res) => {
       }
     }
 
-    // Create product
     const newProduct = new Product({
       name,
       description: htmlDescription,
@@ -132,8 +100,8 @@ export const createProduct = async (req, res) => {
       catId: category.catId,
       subCatId: subCategory.subCatId,
       tags,
-      imgMain: imgMainUrl,     // Public URL from cPanel
-      imgMulti: imgMultiUrls,  // Array of public URLs
+      imgMain,
+      imgMulti,
       createdBy: adminName,
       createdOn: new Date(),
     });
@@ -147,7 +115,6 @@ export const createProduct = async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
-
 
 export const getAllProducts = async (req, res) => {
   try {
@@ -315,52 +282,28 @@ export const updateProduct = async (req, res) => {
 
 
 
-    // // Update imgMain if new file is provided
-    // if (req.files['imgMain'] && req.files['imgMain'][0]) {
-    //   product.imgMain = req.files['imgMain'][0].path;
-    // }
-
-    // // Handle retained multi images (from frontend JSON string or array)
-    // let updatedMultiImages = [];
-    // if (typeof retainedMultiImages === 'string') {
-    //   try {
-    //     updatedMultiImages = JSON.parse(retainedMultiImages);
-    //   } catch (e) {
-    //     updatedMultiImages = [];
-    //   }
-    // } else if (Array.isArray(retainedMultiImages)) {
-    //   updatedMultiImages = retainedMultiImages;
-    // }
-
-    // // Add new uploaded multi images
-    // if (req.files['imgMulti'] && req.files['imgMulti'].length > 0) {
-    //   const uploadedPaths = req.files['imgMulti'].map(file => file.path);
-    //   updatedMultiImages = [...updatedMultiImages, ...uploadedPaths];
-    // }
-
-    if (req.files['imgMain']?.[0]) {
-      product.imgMain = await uploadFileToCpanel(req.files['imgMain'][0]);
+    // Update imgMain if new file is provided
+    if (req.files['imgMain'] && req.files['imgMain'][0]) {
+      product.imgMain = req.files['imgMain'][0].path;
     }
 
-    // Multi-images
+    // Handle retained multi images (from frontend JSON string or array)
     let updatedMultiImages = [];
     if (typeof retainedMultiImages === 'string') {
       try {
         updatedMultiImages = JSON.parse(retainedMultiImages);
-      } catch {
+      } catch (e) {
         updatedMultiImages = [];
       }
     } else if (Array.isArray(retainedMultiImages)) {
       updatedMultiImages = retainedMultiImages;
     }
 
-    if (req.files['imgMulti']?.length > 0) {
-      for (const file of req.files['imgMulti']) {
-        const url = await uploadFileToCpanel(file);
-        updatedMultiImages.push(url);
-      }
+    // Add new uploaded multi images
+    if (req.files['imgMulti'] && req.files['imgMulti'].length > 0) {
+      const uploadedPaths = req.files['imgMulti'].map(file => file.path);
+      updatedMultiImages = [...updatedMultiImages, ...uploadedPaths];
     }
-    product.imgMulti = updatedMultiImages;
 
     // Save updated multi image paths
     if (updatedMultiImages.length > 0) {
