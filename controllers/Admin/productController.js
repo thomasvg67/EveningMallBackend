@@ -152,13 +152,13 @@ export const createProduct = async (req, res) => {
 export const getAllProducts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 24;
-    const skip = (page - 1) * limit;
+    // const limit = parseInt(req.query.limit) || 24;
+    // const skip = (page - 1) * limit;
 
     const [products, totalCount] = await Promise.all([
       Product.find({ dlt_sts: 0 })
-        .skip(skip)
-        .limit(limit)
+        // .skip(skip)
+        // .limit(limit)
         .sort({ createdOn: -1 })
         .populate({
           path: 'brndId',
@@ -187,7 +187,7 @@ export const getAllProducts = async (req, res) => {
 
     res.json({
       products,
-      totalPages: Math.ceil(totalCount / limit),
+      // totalPages: Math.ceil(totalCount / limit),
       currentPage: page,
       totalCount,
     });
