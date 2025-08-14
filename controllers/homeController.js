@@ -84,10 +84,13 @@ export const getBestSellingProducts = async (req, res) => {
 
     const products = await Product.find({
       dlt_sts: 0,
-      avgRtng: { $gte: 4 }
+      // avgRtng: { $gte: 4 }
     })
-      .sort({ avgRtng: -1, createdOn: -1 }) // highest-rated + latest first
+      .sort({ price: -1, createdOn: -1 }) // highest-rated + latest first
       .limit(limit);
+
+    // Log to terminal
+    // console.log("Best Selling Products:", products);
 
     res.status(200).json({ products });
   } catch (error) {
@@ -96,12 +99,15 @@ export const getBestSellingProducts = async (req, res) => {
   }
 };
 
+
 export const getTopRatedProducts = async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 7;
 
     const products = await Product.find({ dlt_sts: 0 })
-      .sort({ avgRtng: -1, createdOn: -1 }) // strict descending by rating
+      .sort({ avgRtng: -1,
+        //  createdOn: -1 
+        }) // strict descending by rating
       .limit(limit);
 
     res.status(200).json({ products });
